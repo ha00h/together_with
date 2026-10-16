@@ -11,6 +11,7 @@ import '../../models/room_clock.dart';
 import '../../models/session.dart';
 import '../../models/stroke.dart';
 import '../../radio/radio_controller.dart';
+import '../../state/page_plan.dart';
 import '../../state/session_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/form_factor.dart';
@@ -999,13 +1000,19 @@ class _AddPagesButtonState extends ConsumerState<_AddPagesButton> {
       messenger.showSnackBar(
         const SnackBar(content: Text('페이지를 맨 뒤에 붙이는 중입니다.')),
       );
-      final error = await ref
+      final result = await ref
           .read(sessionProvider.notifier)
           .appendPages(picked.paths);
+      final maxPages = ref.read(pagePlanProvider).maxPages;
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
         SnackBar(
-          content: Text(error ?? '${picked.paths.length}개를 맨 뒤에 붙였습니다.'),
+          content: Text(
+            result.error ??
+                (result.dropped > 0
+                    ? '최대 $maxPages쪽까지라 뒤쪽 ${result.dropped}쪽은 빼고 붙였습니다.'
+                    : '${picked.paths.length}개를 맨 뒤에 붙였습니다.'),
+          ),
         ),
       );
     } catch (_) {
@@ -1025,6 +1032,8 @@ class _AddPagesButtonState extends ConsumerState<_AddPagesButton> {
     final pageCount = ref.watch(
       sessionProvider.select((session) => session?.pageCount ?? 1),
     );
+    final maxPages = ref.watch(pagePlanProvider).maxPages;
+    final full = pageCount >= maxPages;
     if (_busy || loading) {
       return const SizedBox(
         width: 40,
@@ -1047,17 +1056,32 @@ class _AddPagesButtonState extends ConsumerState<_AddPagesButton> {
       icon: const Icon(Icons.auto_stories_outlined),
       onSelected: _choose,
       itemBuilder: (context) => [
-        const PopupMenuItem(
+        PopupMenuItem(
+          enabled: false,
+          height: 32,
+          child: Text(
+            key: const Key('page-usage'),
+            full
+                ? '$pageCount / $maxPages쪽 · 더 추가할 수 없음'
+                : '$pageCount / $maxPages쪽',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+        PopupMenuItem(
+          key: const Key('add-blank'),
           value: _AddChoice.blank,
-          child: Text('이 페이지 뒤에 흰 페이지'),
+          enabled: !full,
+          child: const Text('이 페이지 뒤에 흰 페이지'),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: _AddChoice.photos,
-          child: Text('사진을 맨 뒤에 추가'),
+          enabled: !full,
+          child: const Text('사진을 맨 뒤에 추가'),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: _AddChoice.files,
-          child: Text('파일을 맨 뒤에 추가'),
+          enabled: !full,
+          child: const Text('파일을 맨 뒤에 추가'),
         ),
         const PopupMenuDivider(),
         PopupMenuItem(

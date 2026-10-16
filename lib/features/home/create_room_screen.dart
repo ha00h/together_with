@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../documents/document_assembler.dart';
 import '../../documents/document_picker.dart';
 import '../../models/document_kind.dart';
+import '../../state/page_plan.dart';
 import '../../state/session_controller.dart';
 import '../../sync/room_gateway.dart';
 import '../../theme/form_factor.dart';
@@ -52,29 +53,29 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
     final landscape = isLandscape(context);
     setState(() => _uploading = true);
     try {
-      final String path;
-      final String name;
-      final DocumentKind kind;
+      final assembler = ref.read(documentAssemblerProvider);
+      final maxPages = ref.read(pagePlanProvider).maxPages;
+      var path = picked?.paths.first ?? '';
+      var name = picked?.names.first ?? 'lesson.pdf';
+      var kind = documentKindFromName(name) ?? DocumentKind.image;
+      var dropped = 0;
       if (picked == null) {
-        final blank = await ref
-            .read(documentAssemblerProvider)
-            .blank(landscape ? 1.4142 : 1 / 1.4142);
-        path = blank.path;
-        name = 'lesson.pdf';
+        path = (await assembler.blank(landscape ? 1.4142 : 1 / 1.4142)).path;
         kind = DocumentKind.pdf;
       } else if (picked.paths.length > 1 ||
-          documentKindFromName(picked.names.first) == null) {
-        final merged = await ref
-            .read(documentAssemblerProvider)
-            .assemble(picked.paths);
+          documentKindFromName(picked.names.first) == null ||
+          await assembler.pageCountOf(path) > maxPages) {
+        final merged = await assembler.assemble(
+          picked.paths,
+          maxPages: maxPages,
+        );
         path = merged.path;
         name = 'lesson.pdf';
         kind = DocumentKind.pdf;
-      } else {
-        path = picked.paths.first;
-        name = picked.names.first;
-        kind = documentKindFromName(name) ?? DocumentKind.image;
+        dropped = merged.droppedPages;
       }
+      if (dropped > 0 && !await _confirmTrim(maxPages, dropped)) return;
+      if (!mounted) return;
       await ref
           .read(sessionProvider.notifier)
           .startRoom(
@@ -97,6 +98,32 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
+  }
+
+  Future<bool> _confirmTrim(int maxPages, int dropped) async {
+    if (!mounted) return false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('앞 $maxPages쪽만 사용합니다'),
+        content: Text(
+          '고른 문서는 모두 ${maxPages + dropped}쪽입니다. '
+          '한 수업은 최대 $maxPages쪽까지 쓸 수 있어 뒤쪽 $dropped쪽은 빠집니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('다시 고르기'),
+          ),
+          FilledButton(
+            key: const Key('confirm-trim'),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('앞 $maxPages쪽으로 시작'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
   }
 
   void _show(String message) {

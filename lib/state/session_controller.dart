@@ -16,6 +16,7 @@ import '../models/stroke.dart';
 import '../sync/room_gateway.dart';
 import '../sync/room_providers.dart';
 import '../sync/stroke_codec.dart';
+import 'page_plan.dart';
 
 const hostInk = 0xFF1C1917;
 const participantInk = 0xFF1D4ED8;
@@ -356,12 +357,19 @@ class SessionController extends Notifier<Session?> {
     }
   }
 
-  Future<String?> appendPages(List<String> sources) async {
-    if (sources.isEmpty) return null;
+  Future<({String? error, int dropped})> appendPages(
+    List<String> sources,
+  ) async {
+    if (sources.isEmpty) return (error: null, dropped: 0);
     final firstNew = state?.pageCount ?? 0;
+    final plan = ref.read(pagePlanProvider);
+    var dropped = 0;
     final error = await _changeDocument((current) async {
+      final room = plan.maxPages - current.pageCount;
+      if (room <= 0) throw DocumentAssemblyException(plan.limitMessage);
       final assembler = ref.read(documentAssemblerProvider);
-      final part = await assembler.assemble(sources);
+      final part = await assembler.assemble(sources, maxPages: room);
+      dropped = part.droppedPages;
       final merged = await assembler.assemble([
         current.documentPath,
         part.path,
@@ -374,12 +382,16 @@ class SessionController extends Notifier<Session?> {
       );
     });
     if (error == null) goToPage(firstNew);
-    return error;
+    return (error: error, dropped: error == null ? dropped : 0);
   }
 
   Future<String?> insertBlankPage() {
     final at = (state?.pageIndex ?? 0) + 1;
+    final plan = ref.read(pagePlanProvider);
     return _changeDocument((current) async {
+      if (current.pageCount >= plan.maxPages) {
+        throw DocumentAssemblyException(plan.limitMessage);
+      }
       final merged = await ref
           .read(documentAssemblerProvider)
           .insertBlank(

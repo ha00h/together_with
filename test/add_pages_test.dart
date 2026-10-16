@@ -5,6 +5,7 @@ import 'package:together_with/archive/lesson_archive.dart';
 import 'package:together_with/documents/document_assembler.dart';
 import 'package:together_with/models/document_kind.dart';
 import 'package:together_with/models/session.dart';
+import 'package:together_with/state/page_plan.dart';
 import 'package:together_with/state/session_controller.dart';
 import 'package:together_with/sync/active_room_store.dart';
 import 'package:together_with/sync/memory_room_gateway.dart';
@@ -29,11 +30,27 @@ class _FakeAssembler implements DocumentAssembler {
     return AssembledDocument(path: path, pageCount: pageCount);
   }
 
+  final limits = <int?>[];
+
   @override
-  Future<AssembledDocument> assemble(List<String> sources) async {
+  Future<AssembledDocument> assemble(
+    List<String> sources, {
+    int? maxPages,
+  }) async {
     calls.add(sources);
-    return _made(sources.fold(0, (sum, path) => sum + pagesOf(path)));
+    limits.add(maxPages);
+    final total = sources.fold(0, (sum, path) => sum + pagesOf(path));
+    if (maxPages == null || total <= maxPages) return _made(total);
+    final made = _made(maxPages);
+    return AssembledDocument(
+      path: made.path,
+      pageCount: maxPages,
+      droppedPages: total - maxPages,
+    );
   }
+
+  @override
+  Future<int> pageCountOf(String source) async => pagesOf(source);
 
   @override
   Future<AssembledDocument> blank(double aspectRatio) async {
@@ -98,9 +115,10 @@ void main() {
     expect(guestBox.read(sessionProvider)!.documentVersion, 1);
 
     gateway.userId = 'host-1';
-    final error = await host.appendPages(['/tmp/a.jpg', '/tmp/b.jpg']);
+    final result = await host.appendPages(['/tmp/a.jpg', '/tmp/b.jpg']);
     await pumpEventQueue();
-    expect(error, isNull);
+    expect(result.error, isNull);
+    expect(result.dropped, 0);
     expect(assembler.calls.take(2).toList(), [
       ['/tmp/a.jpg', '/tmp/b.jpg'],
       ['/tmp/lesson.pdf', '/tmp/merged-1.pdf'],
@@ -448,10 +466,55 @@ void main() {
       documentKind: DocumentKind.pdf,
     );
     hostBox.read(sessionProvider.notifier).viewAs(MemberRole.participant);
-    final error = await hostBox
+    final result = await hostBox
         .read(sessionProvider.notifier)
         .appendPages(['/tmp/a.jpg']);
-    expect(error, isNotNull);
+    expect(result.error, isNotNull);
     expect(assembler.calls, isEmpty);
+  });
+
+  test('한 수업은 최대 쪽수를 넘길 수 없다', () async {
+    final assembler = _FakeAssembler();
+    final box = ProviderContainer(
+      overrides: [
+        roomGatewayProvider.overrideWithValue(
+          MemoryRoomGateway(userId: 'host-1'),
+        ),
+        activeRoomStoreProvider.overrideWithValue(MemoryActiveRoomStore()),
+        privateStrokeStoreProvider.overrideWithValue(MemoryPrivateStrokeStore()),
+        lessonArchiveProvider.overrideWithValue(MemoryLessonArchive()),
+        documentAssemblerProvider.overrideWithValue(assembler),
+        pagePlanProvider.overrideWithValue(const PagePlan(maxPages: 3)),
+      ],
+    );
+    addTearDown(box.dispose);
+    final host = box.read(sessionProvider.notifier);
+    await host.startRoom(
+      title: '수학',
+      documentPath: '/tmp/lesson.pdf',
+      fileName: 'lesson.pdf',
+      documentKind: DocumentKind.pdf,
+    );
+
+    final result = await host.appendPages([
+      '/tmp/a.jpg',
+      '/tmp/b.jpg',
+      '/tmp/c.jpg',
+    ]);
+    expect(result.error, isNull);
+    expect(result.dropped, 1);
+    expect(assembler.limits.first, 2);
+    expect(box.read(sessionProvider)!.pageCount, 3);
+
+    final calls = assembler.calls.length;
+    expect(await host.insertBlankPage(), '한 수업은 최대 3쪽까지 쓸 수 있습니다.');
+    final full = await host.appendPages(['/tmp/d.jpg']);
+    expect(full.error, '한 수업은 최대 3쪽까지 쓸 수 있습니다.');
+    expect(assembler.calls, hasLength(calls));
+    expect(box.read(sessionProvider)!.documentLoading, isFalse);
+
+    expect(await host.deletePage(), isNull);
+    expect(await host.insertBlankPage(), isNull);
+    expect(box.read(sessionProvider)!.pageCount, 3);
   });
 }

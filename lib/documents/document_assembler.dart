@@ -11,10 +11,15 @@ import 'package:pdfrx/pdfrx.dart';
 import '../models/document_kind.dart';
 
 class AssembledDocument {
-  const AssembledDocument({required this.path, required this.pageCount});
+  const AssembledDocument({
+    required this.path,
+    required this.pageCount,
+    this.droppedPages = 0,
+  });
 
   final String path;
   final int pageCount;
+  final int droppedPages;
 }
 
 class DocumentAssemblyException implements Exception {
@@ -24,7 +29,9 @@ class DocumentAssemblyException implements Exception {
 }
 
 abstract class DocumentAssembler {
-  Future<AssembledDocument> assemble(List<String> sources);
+  Future<AssembledDocument> assemble(List<String> sources, {int? maxPages});
+
+  Future<int> pageCountOf(String source);
 
   Future<AssembledDocument> blank(double aspectRatio);
 
@@ -46,17 +53,44 @@ const _maxRasterEdge = 2400;
 
 class PdfDocumentAssembler implements DocumentAssembler {
   @override
-  Future<AssembledDocument> assemble(List<String> sources) async {
+  Future<AssembledDocument> assemble(
+    List<String> sources, {
+    int? maxPages,
+  }) async {
     if (sources.isEmpty) {
       throw const DocumentAssemblyException('합칠 페이지가 없습니다.');
     }
-    return _merge((open) async {
+    var dropped = 0;
+    final merged = await _merge((open) async {
       final pages = <PdfPage>[];
       for (final source in sources) {
         pages.addAll((await open(source)).pages);
       }
-      return pages;
+      if (maxPages == null || pages.length <= maxPages) return pages;
+      dropped = pages.length - maxPages;
+      return pages.take(maxPages).toList();
     });
+    return AssembledDocument(
+      path: merged.path,
+      pageCount: merged.pageCount,
+      droppedPages: dropped,
+    );
+  }
+
+  @override
+  Future<int> pageCountOf(String source) async {
+    if (documentKindFromName(source) != DocumentKind.pdf) return 1;
+    await pdfrxFlutterInitialize();
+    try {
+      final document = await PdfDocument.openFile(source);
+      try {
+        return document.pages.length;
+      } finally {
+        await document.dispose();
+      }
+    } catch (_) {
+      throw const DocumentAssemblyException('문서를 읽지 못했습니다.');
+    }
   }
 
   @override

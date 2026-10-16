@@ -16,8 +16,13 @@ class _BlankAssembler implements DocumentAssembler {
   var pages = 3;
 
   @override
-  Future<AssembledDocument> assemble(List<String> sources) async =>
-      AssembledDocument(path: '/tmp/a.pdf', pageCount: pages);
+  Future<AssembledDocument> assemble(
+    List<String> sources, {
+    int? maxPages,
+  }) async => AssembledDocument(path: '/tmp/a.pdf', pageCount: pages);
+
+  @override
+  Future<int> pageCountOf(String source) async => pages;
 
   @override
   Future<AssembledDocument> blank(double aspectRatio) async =>
