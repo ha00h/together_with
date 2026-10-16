@@ -1,0 +1,38 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      ".indexOn": ["startedAt"],
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null && data.child('hostUid').val() == auth.uid",
+        "hostUid": {
+          ".write": "auth != null && newData.val() == auth.uid && (data.val() == null || data.val() == auth.uid)"
+        },
+        "page": {
+          ".write": "auth != null && root.child('rooms').child($roomId).child('hostUid').val() == auth.uid"
+        },
+        "live": {
+          ".write": "auth != null && root.child('rooms').child($roomId).child('hostUid').val() == auth.uid"
+        },
+    "strokes": {
+      "$strokeId": {
+        ".write": "auth != null && root.child('rooms').child($roomId).child('hostUid').val() == auth.uid"
+      }
+    },
+    "startedAt": {
+      ".write": "auth != null && !data.exists() && newData.val() == now"
+    },
+    "ended": {
+      ".write": "auth != null && root.child('rooms').child($roomId).child('hostUid').val() == auth.uid && newData.val() == true"
+    },
+    "members": {
+      "$memberId": {
+        ".write": "auth != null && auth.uid == $memberId && (newData.val() == true || !newData.exists())"
+      }
+    }
+      }
+    }
+  }
+}

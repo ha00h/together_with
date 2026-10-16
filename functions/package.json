@@ -1,0 +1,17 @@
+{
+  "name": "together-with-functions",
+  "description": "함께 보자 음성 입장권 발급",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "agora-token": "^2.0.5",
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^6.6.0"
+  }
+}
