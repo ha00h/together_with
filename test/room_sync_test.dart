@@ -100,6 +100,7 @@ void main() {
 
     host.selectTool(CanvasTool.eraser);
     host.pointerDown(const Offset(20, 30), size);
+    host.pointerUp();
     await pumpEventQueue();
     expect(guestBox.read(sessionProvider)!.publicStrokes, isEmpty);
 

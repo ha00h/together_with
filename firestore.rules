@@ -2,7 +2,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /rooms/{roomId} {
-      allow get: if request.auth != null;
+      allow get: if request.auth != null
+        && (resource == null
+          || !('expiresAt' in resource.data)
+          || request.time < resource.data.expiresAt
+          || resource.data.hostUid == request.auth.uid);
       allow list: if false;
       allow create: if request.auth != null
         && request.resource.data.hostUid == request.auth.uid

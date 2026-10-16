@@ -52,6 +52,7 @@ class SessionController extends Notifier<Session?> {
   StreamSubscription<RemoteEvent>? _remoteSub;
   Timer? _liveTimer;
   Stroke? _pendingLive;
+  ({bool public, List<Stroke> base, Map<String, Stroke> removed})? _erase;
   var _fetchingVersion = 0;
   Future<void> _documentQueue = Future<void>.value();
   var _clockOffset = Duration.zero;
@@ -135,7 +136,7 @@ class SessionController extends Notifier<Session?> {
       if (!snapshot.asHost &&
           expiresAt != null &&
           !serverNow().isBefore(expiresAt)) {
-        return '수업 시간(24시간)이 끝났습니다. 발표자만 들어갈 수 있습니다.';
+        return roomExpiredMessage;
       }
       var privateStrokes = const <Stroke>[];
       if (!snapshot.asHost) {
@@ -171,6 +172,8 @@ class SessionController extends Notifier<Session?> {
         }
       }
       return null;
+    } on RoomSyncException catch (error) {
+      return error.message;
     } catch (error) {
       debugPrint('joinRoom failed: $error');
       return '입장하지 못했습니다. 연결을 확인해 주세요.';
@@ -238,6 +241,7 @@ class SessionController extends Notifier<Session?> {
 
   void leaveWorkspace() {
     if (!ref.mounted) return;
+    _commitErase();
     final current = state;
     final uid = current?.localUid;
     if (current == null || !current.networked || uid == null) return;
@@ -767,6 +771,7 @@ class SessionController extends Notifier<Session?> {
 
   void pointerDown(Offset local, Size size) {
     if (state?.documentLoading == true) return;
+    _commitErase();
     _commitLeftoverLive();
     final current = state;
     if (current == null || size.width <= 0 || size.height <= 0) return;
@@ -829,6 +834,7 @@ class SessionController extends Notifier<Session?> {
     _liveTimer?.cancel();
     _liveTimer = null;
     _pendingLive = null;
+    _undoErase();
     final current = state;
     final live = current?.liveStroke;
     if (current == null || live == null) return;
@@ -840,6 +846,7 @@ class SessionController extends Notifier<Session?> {
     _liveTimer?.cancel();
     _liveTimer = null;
     _pendingLive = null;
+    _commitErase();
     final current = state;
     final live = current?.liveStroke;
     if (current == null || live == null) return;
@@ -1377,6 +1384,14 @@ class SessionController extends Notifier<Session?> {
           stroke.id,
     };
     if (removeIds.isEmpty) return;
+    final erase = _erase ??= (
+      public: current.drawsPublic,
+      base: source,
+      removed: <String, Stroke>{},
+    );
+    for (final stroke in source) {
+      if (removeIds.contains(stroke.id)) erase.removed[stroke.id] = stroke;
+    }
     bool keep(Stroke stroke) => !removeIds.contains(stroke.id);
     state = current.copyWith(
       publicStrokes: current.drawsPublic
@@ -1386,14 +1401,21 @@ class SessionController extends Notifier<Session?> {
           ? current.privateStrokes
           : current.privateStrokes.where(keep).toList(),
     );
-    final uid = current.localUid;
-    if (!current.drawsPublic) {
+  }
+
+  void _commitErase() {
+    final erase = _erase;
+    _erase = null;
+    final current = state;
+    if (erase == null || erase.removed.isEmpty || current == null) return;
+    if (!erase.public) {
       _persistPrivate();
       return;
     }
+    final uid = current.localUid;
     if (!current.networked || uid == null) return;
     final gateway = ref.read(roomGatewayProvider);
-    for (final id in removeIds) {
+    for (final id in erase.removed.keys) {
       _run(
         gateway.deleteStroke(
           code: current.joinCode,
@@ -1403,6 +1425,30 @@ class SessionController extends Notifier<Session?> {
         report: true,
       );
     }
+  }
+
+  void _undoErase() {
+    final erase = _erase;
+    _erase = null;
+    final current = state;
+    if (erase == null || erase.removed.isEmpty || current == null) return;
+    List<Stroke> restore(List<Stroke> now) {
+      final present = {for (final stroke in now) stroke.id};
+      final result = [...now];
+      for (var i = 0; i < erase.base.length; i++) {
+        final stroke = erase.base[i];
+        if (!erase.removed.containsKey(stroke.id) ||
+            present.contains(stroke.id)) {
+          continue;
+        }
+        result.insert(min(i, result.length), stroke);
+      }
+      return result;
+    }
+
+    state = erase.public
+        ? current.copyWith(publicStrokes: restore(current.publicStrokes))
+        : current.copyWith(privateStrokes: restore(current.privateStrokes));
   }
 
   void _scheduleLive(Stroke stroke) {
@@ -1469,6 +1515,7 @@ class SessionController extends Notifier<Session?> {
   }
 
   void _stopSync() {
+    _erase = null;
     _remoteSub?.cancel();
     _remoteSub = null;
     _expiryTimer?.cancel();

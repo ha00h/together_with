@@ -5,6 +5,7 @@ import '../models/page_insert.dart';
 import '../models/stroke.dart';
 
 const roomLifetime = Duration(days: 1);
+const roomExpiredMessage = '수업 시간(24시간)이 끝났습니다. 발표자만 들어갈 수 있습니다.';
 
 class RoomCodeTaken implements Exception {
   const RoomCodeTaken();

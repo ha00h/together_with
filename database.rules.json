@@ -5,7 +5,7 @@
     "rooms": {
       ".indexOn": ["startedAt"],
       "$roomId": {
-        ".read": "auth != null",
+        ".read": "auth != null && (!data.child('startedAt').exists() || data.child('startedAt').val() + 86400000 > now || data.child('hostUid').val() == auth.uid)",
         ".write": "auth != null && data.child('hostUid').val() == auth.uid",
         "hostUid": {
           ".write": "auth != null && newData.val() == auth.uid && (data.val() == null || data.val() == auth.uid)"
@@ -29,7 +29,7 @@
     },
     "members": {
       "$memberId": {
-        ".write": "auth != null && auth.uid == $memberId && (newData.val() == true || !newData.exists())"
+        ".write": "auth != null && auth.uid == $memberId && (!newData.exists() || (newData.val() == true && (!root.child('rooms').child($roomId).child('startedAt').exists() || root.child('rooms').child($roomId).child('startedAt').val() + 86400000 > now || root.child('rooms').child($roomId).child('hostUid').val() == auth.uid)))"
       }
     }
       }

@@ -59,6 +59,7 @@ void main() {
 
     host.selectTool(CanvasTool.eraser);
     host.pointerDown(const Offset(50, 60), const Size(200, 280));
+    host.pointerUp();
     await pumpEventQueue();
     expect(guestBox.read(sessionProvider)!.publicStrokes, isEmpty);
   });

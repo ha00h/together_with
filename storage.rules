@@ -1,8 +1,15 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function openFor(roomId) {
+      let room = firestore.get(/databases/(default)/documents/rooms/$(roomId)).data;
+      return !('expiresAt' in room)
+        || request.time < room.expiresAt
+        || room.hostUid == request.auth.uid;
+    }
+
     match /rooms/{roomId}/{fileName} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && openFor(roomId);
       allow write: if request.auth != null
         && request.auth.uid == firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.hostUid;
     }

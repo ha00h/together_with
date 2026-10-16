@@ -2,11 +2,13 @@ const { initializeApp } = require('firebase-admin/app');
 const { getDatabase } = require('firebase-admin/database');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
+const { onValueCreated } = require('firebase-functions/v2/database');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 
 const { purgeExpiredRooms, purgeIdleRooms } = require('./cleanup');
+const { stampExpiry, isExpiredFor } = require('./expiry');
 const { buildVoiceToken } = require('./token');
 
 const appCertificate = defineSecret('AGORA_APP_CERTIFICATE');
@@ -34,6 +36,9 @@ exports.issueVoiceToken = onCall(
     if (typeof hostUid !== 'string' || hostUid.length === 0) {
       throw new HttpsError('failed-precondition', 'room-has-no-host');
     }
+    if (isExpiredFor(room, request.auth.uid, Date.now())) {
+      throw new HttpsError('permission-denied', 'room-expired');
+    }
     try {
       return buildVoiceToken({
         appId,
@@ -48,6 +53,23 @@ exports.issueVoiceToken = onCall(
       }
       throw new HttpsError('failed-precondition', 'token-unavailable');
     }
+  },
+);
+
+exports.stampRoomExpiry = onValueCreated(
+  {
+    ref: '/rooms/{code}/startedAt',
+    instance: 'together-with-view-default-rtdb',
+    region: 'asia-southeast1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async (event) => {
+    await stampExpiry({
+      firestore: getFirestore(),
+      code: event.params.code,
+      startedAt: event.data.val(),
+    });
   },
 );
 

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:together_with/features/workspace/document_view.dart';
 import 'package:together_with/features/workspace/workspace_screen.dart';
 import 'package:together_with/models/document_kind.dart';
+import 'package:together_with/models/stroke.dart';
 import 'package:together_with/state/session_controller.dart';
 
 void main() {
@@ -129,6 +130,57 @@ void main() {
     final session = container.read(sessionProvider)!;
     expect(session.pageIndex, 0);
     expect(session.publicStrokes, hasLength(1));
+  });
+
+  Future<void> drawLine(WidgetTester tester, Offset from) async {
+    final finger = await tester.startGesture(from);
+    for (var i = 0; i < 6; i++) {
+      await finger.moveBy(const Offset(-40, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await finger.up();
+    await tester.pump();
+  }
+
+  testWidgets('지우개로 문지르다 두 손가락으로 넘기면 판서는 지워지지 않는다', (tester) async {
+    final container = await open(tester);
+    session() => container.read(sessionProvider)!;
+    final center = tester.getCenter(find.byKey(const Key('page-stage')));
+    final line = center - const Offset(0, 30);
+    await drawLine(tester, line);
+    expect(session().publicStrokes, hasLength(1));
+    container.read(sessionProvider.notifier).selectTool(CanvasTool.eraser);
+
+    final a = await tester.startGesture(line - const Offset(60, 0), pointer: 1);
+    for (var i = 0; i < 4; i++) {
+      await a.moveBy(const Offset(-10, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(session().publicStrokes, isEmpty);
+    final b = await tester.startGesture(center + const Offset(0, 30), pointer: 2);
+    await tester.pump();
+    expect(session().publicStrokes, hasLength(1));
+    for (var i = 0; i < 6; i++) {
+      await a.moveBy(const Offset(-30, 0));
+      await b.moveBy(const Offset(-30, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await a.up();
+    await b.up();
+    await tester.pump();
+
+    expect(session().pageIndex, 1);
+    expect(session().publicStrokes, hasLength(1));
+    expect(session().publicStrokes.single.pageIndex, 0);
+  });
+
+  testWidgets('한 손가락 지우개는 그대로 지운다', (tester) async {
+    final container = await open(tester);
+    final center = tester.getCenter(find.byKey(const Key('page-stage')));
+    await drawLine(tester, center);
+    container.read(sessionProvider.notifier).selectTool(CanvasTool.eraser);
+    await drawLine(tester, center - const Offset(20, 0));
+    expect(container.read(sessionProvider)!.publicStrokes, isEmpty);
   });
 
   testWidgets('펜슬을 대고 있으면 두 손가락이 닿아도 넘기지 않는다', (tester) async {

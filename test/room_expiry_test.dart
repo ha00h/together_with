@@ -12,6 +12,14 @@ import 'package:together_with/sync/room_providers.dart';
 
 import 'end_class_test.dart';
 
+class _RefusingGateway extends MemoryRoomGateway {
+  _RefusingGateway({super.userId, super.clock});
+
+  @override
+  Future<RoomSnapshot?> joinRoom(String code) async =>
+      throw const RoomSyncException(roomExpiredMessage);
+}
+
 void main() {
   final start = DateTime(2026, 10, 17, 9);
   late DateTime now;
@@ -82,6 +90,17 @@ void main() {
     final session = host.read(sessionProvider)!;
     expect(session.expired, isTrue);
     expect(session.classEnded, isFalse);
+  });
+
+  test('서버가 만료로 막으면 같은 안내를 보여준다', () async {
+    final (_, code) = await openRoom();
+    gateway = _RefusingGateway(userId: 'guest-2', clock: () => now);
+    final blocked = container();
+    expect(
+      await blocked.read(sessionProvider.notifier).joinRoom(code),
+      roomExpiredMessage,
+    );
+    expect(blocked.read(sessionProvider), isNull);
   });
 
   test('수업 중 만료되면 참여자는 끝난 수업 상태가 된다', () async {

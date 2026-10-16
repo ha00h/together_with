@@ -96,6 +96,18 @@ class FirebaseRoomGateway implements RoomGateway {
 
   @override
   Future<RoomSnapshot?> joinRoom(String code) async {
+    try {
+      return await _joinRoom(code);
+    } on FirebaseException catch (error) {
+      // Only the expiry rules can refuse a signed-in reader.
+      if (error.code == 'permission-denied' || error.code == 'unauthorized') {
+        throw const RoomSyncException(roomExpiredMessage);
+      }
+      rethrow;
+    }
+  }
+
+  Future<RoomSnapshot?> _joinRoom(String code) async {
     final viewerUid = await ensureUser();
     final snap = await _firestore.collection('rooms').doc(code).get();
     if (!snap.exists) return null;
